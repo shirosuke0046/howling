@@ -1,10 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"os"
+	"os/signal"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -12,8 +13,23 @@ func main() {
 
 	_, err := flags.NewParser(&opts, flags.HelpFlag|flags.PassDoubleDash).Parse()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		logrus.Error(err)
+		os.Exit(1)
 	}
+
+	bot, err := New(opts.DiscordToken, opts.JTalkDictionary, opts.JTalkHTSVoice)
+	if err != nil {
+		logrus.Error(err)
+		os.Exit(1)
+	}
+
+	bot.Open()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	<-sig
+
+	bot.Close()
 }
 
 type Options struct {
