@@ -77,7 +77,7 @@ func (howling *Howling) Close() error {
 	howling.mu.Lock()
 	defer howling.mu.Unlock()
 
-	howling.Leave()
+	howling.leave()
 	close(howling.done)
 	err := howling.session.Close()
 	return xerrors.Errorf("howling: %v", err)
@@ -131,12 +131,6 @@ func (howling *Howling) Join(guildID, channelID, messageChannelID string) {
 }
 
 func (howling *Howling) leave() {
-}
-
-func (howling *Howling) Leave() {
-	howling.mu.Lock()
-	defer howling.mu.Unlock()
-
 	if howling.voiceConn == nil {
 		return
 	}
@@ -144,6 +138,13 @@ func (howling *Howling) Leave() {
 	howling.voiceConn.Disconnect()
 	howling.voiceConn = nil
 	howling.messageChannelID = ""
+}
+
+func (howling *Howling) Leave() {
+	howling.mu.Lock()
+	defer howling.mu.Unlock()
+
+	howling.leave()
 }
 
 func (howling *Howling) Speak(text string) {
