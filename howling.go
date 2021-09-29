@@ -131,6 +131,10 @@ func (howling *Howling) Join(guildID, channelID, messageChannelID string) {
 }
 
 func (howling *Howling) leave() {
+	if howling.voiceConn == nil {
+		return
+	}
+
 	howling.voiceConn.Close()
 	howling.voiceConn = nil
 	howling.messageChannelID = ""
