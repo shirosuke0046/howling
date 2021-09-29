@@ -123,7 +123,7 @@ func (howling *Howling) Join(guildID, channelID, messageChannelID string) {
 		return
 	}
 
-	vc, err := howling.session.ChannelVoiceJoin(guildID, channelID, false, true)
+	vc, err := howling.session.ChannelVoiceJoin(guildID, channelID, false, false)
 	if err != nil {
 		logrus.Error(err)
 		return
