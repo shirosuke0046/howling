@@ -19,7 +19,6 @@ type Howling struct {
 	session          *discordgo.Session
 	voiceConn        *discordgo.VoiceConnection
 	messageChannelID string
-	lastTime         time.Time
 
 	mu      sync.Mutex
 	voicech chan string
@@ -65,8 +64,6 @@ func (howling *Howling) Open() error {
 			select {
 			case voice := <-howling.voicech:
 				howling.Speak(voice)
-			case now := <-t.C:
-				howling.Expire(now)
 			case <-howling.done:
 				return
 			}
@@ -131,7 +128,6 @@ func (howling *Howling) Join(guildID, channelID, messageChannelID string) {
 
 	howling.voiceConn = vc
 	howling.messageChannelID = messageChannelID
-	howling.lastTime = time.Now()
 }
 
 func (howling *Howling) leave() {
@@ -147,19 +143,6 @@ func (howling *Howling) Leave() {
 	howling.leave()
 }
 
-func (howling *Howling) Expire(now time.Time) {
-	howling.mu.Lock()
-	defer howling.mu.Unlock()
-
-	if howling.voiceConn != nil {
-		return
-	}
-
-	if now.Sub(howling.lastTime) > 30*time.Minute {
-		howling.leave()
-	}
-}
-
 func (howling *Howling) Speak(text string) {
 	howling.mu.Lock()
 	defer howling.mu.Unlock()
@@ -167,8 +150,6 @@ func (howling *Howling) Speak(text string) {
 	if howling.voiceConn == nil {
 		return
 	}
-
-	howling.lastTime = time.Now()
 
 	f, err := GenerateJtalkWav(text, howling.dictionary, howling.htsvoice)
 	if err != nil {
