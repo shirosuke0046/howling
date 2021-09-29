@@ -131,20 +131,19 @@ func (howling *Howling) Join(guildID, channelID, messageChannelID string) {
 }
 
 func (howling *Howling) leave() {
-	if howling.voiceConn == nil {
-		return
-	}
-
-	howling.voiceConn.Close()
-	howling.voiceConn = nil
-	howling.messageChannelID = ""
 }
 
 func (howling *Howling) Leave() {
 	howling.mu.Lock()
 	defer howling.mu.Unlock()
 
-	howling.leave()
+	if howling.voiceConn == nil {
+		return
+	}
+
+	howling.voiceConn.Disconnect()
+	howling.voiceConn = nil
+	howling.messageChannelID = ""
 }
 
 func (howling *Howling) Speak(text string) {
