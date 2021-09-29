@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/jonas747/dca"
@@ -13,13 +15,15 @@ import (
 	"golang.org/x/xerrors"
 )
 
-const (
-	MessagePrefix = "howl!"
-)
-
 type Howling struct {
-	session   *discordgo.Session
-	voiceConn *discordgo.VoiceConnection
+	session          *discordgo.Session
+	voiceConn        *discordgo.VoiceConnection
+	messageChannelID string
+	lastTime         time.Time
+
+	mu      sync.Mutex
+	voicech chan string
+	done    chan struct{}
 
 	dictionary string
 	htsvoice   string
@@ -36,20 +40,48 @@ func New(token, dictionary, htsvoice string) (*Howling, error) {
 	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates
 
 	howling.session = dg
+	howling.dictionary = dictionary
+	howling.htsvoice = htsvoice
+	howling.voicech = make(chan string)
+	howling.done = make(chan struct{})
 
 	return &howling, nil
 }
 
 func (howling *Howling) Open() error {
+	howling.mu.Lock()
+	defer howling.mu.Unlock()
+
 	err := howling.session.Open()
 	if err != nil {
 		return xerrors.Errorf("howling: %v", err)
 	}
 
+	go func() {
+		t := time.NewTicker(1 * time.Minute)
+		defer t.Stop()
+
+		for {
+			select {
+			case voice := <-howling.voicech:
+				howling.Speak(voice)
+			case now := <-t.C:
+				howling.Expire(now)
+			case <-howling.done:
+				return
+			}
+		}
+	}()
+
 	return nil
 }
 
 func (howling *Howling) Close() error {
+	howling.mu.Lock()
+	defer howling.mu.Unlock()
+
+	howling.Leave()
+	close(howling.done)
 	err := howling.session.Close()
 	return xerrors.Errorf("howling: %v", err)
 }
@@ -59,7 +91,8 @@ func (howling *Howling) MessageCreate(s *discordgo.Session, m *discordgo.Message
 		return
 	}
 
-	if strings.HasPrefix(m.Content, MessagePrefix) {
+	switch {
+	case strings.HasPrefix(m.Content, "hws!"):
 		c, err := s.State.Channel(m.ChannelID)
 		if err != nil {
 			return
@@ -72,15 +105,20 @@ func (howling *Howling) MessageCreate(s *discordgo.Session, m *discordgo.Message
 
 		for _, vs := range g.VoiceStates {
 			if vs.UserID == m.Author.ID {
-				howling.Join(g.ID, vs.ChannelID)
+				howling.Join(g.ID, vs.ChannelID, m.ChannelID)
 			}
 		}
-	} else {
-		howling.Speak(m.Content)
+	case strings.HasPrefix(m.Content, "hwl!"):
+		howling.Leave()
+	case m.ChannelID == howling.messageChannelID:
+		howling.voicech <- m.Content
 	}
 }
 
-func (howling *Howling) Join(guildID, channelID string) {
+func (howling *Howling) Join(guildID, channelID, messageChannelID string) {
+	howling.mu.Lock()
+	defer howling.mu.Unlock()
+
 	if howling.voiceConn != nil {
 		return
 	}
@@ -92,17 +130,45 @@ func (howling *Howling) Join(guildID, channelID string) {
 	}
 
 	howling.voiceConn = vc
+	howling.messageChannelID = messageChannelID
+	howling.lastTime = time.Now()
+}
+
+func (howling *Howling) leave() {
+	howling.voiceConn.Close()
+	howling.voiceConn = nil
+	howling.messageChannelID = ""
 }
 
 func (howling *Howling) Leave() {
-	howling.voiceConn.Close()
-	howling.voiceConn = nil
+	howling.mu.Lock()
+	defer howling.mu.Unlock()
+
+	howling.leave()
+}
+
+func (howling *Howling) Expire(now time.Time) {
+	howling.mu.Lock()
+	defer howling.mu.Unlock()
+
+	if howling.voiceConn != nil {
+		return
+	}
+
+	if now.Sub(howling.lastTime) > 30*time.Minute {
+		howling.leave()
+	}
 }
 
 func (howling *Howling) Speak(text string) {
+	howling.mu.Lock()
+	defer howling.mu.Unlock()
+
 	if howling.voiceConn == nil {
 		return
 	}
+
+	howling.lastTime = time.Now()
 
 	f, err := GenerateJtalkWav(text, howling.dictionary, howling.htsvoice)
 	if err != nil {
@@ -135,6 +201,7 @@ func GenerateJtalkWav(text, dictionary, htsvoice string) (string, error) {
 		"open_jtalk",
 		"-x", dictionary,
 		"-m", htsvoice,
+		"-r", "1.2",
 		"-ow", fn,
 	)
 
